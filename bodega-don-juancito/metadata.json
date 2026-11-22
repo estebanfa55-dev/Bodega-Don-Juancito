@@ -1,0 +1,6 @@
+{
+  "name": "Bodega al Día — POS e Inventario",
+  "description": "Sistema móvil rápido para bodegas en Perú: cobro con escáner de códigos de barras, productos sin código, control de fiados por cliente e inventario con ganancias.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

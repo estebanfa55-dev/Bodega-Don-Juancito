@@ -1,0 +1,672 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrapAdmin() {
+      return isVerified() && request.auth.token.email == 'estebanfa005@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrapAdmin() || (
+        isVerified() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        (
+          !exists(/databases/$(database)/documents/staff_members/$(request.auth.uid)) ||
+          get(/databases/$(database)/documents/staff_members/$(request.auth.uid)).data.active == true
+        )
+      );
+    }
+
+    function isStaff() {
+      return isAdmin() || (
+        isVerified() &&
+        exists(/databases/$(database)/documents/staff_members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/staff_members/$(request.auth.uid)).data.active == true &&
+        get(/databases/$(database)/documents/staff_members/$(request.auth.uid)).data.role in ['admin', 'vendedor']
+      );
+    }
+
+    function safeEmailKey(email) {
+      return email.lower().replace('[^a-z0-9_-]', '_');
+    }
+
+    // 3. Entity Validation Blueprints (Anti-Update-Gap)
+    function isValidAdminRole(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'displayName', 'createdAt']) &&
+        isValidId(data.uid) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 120 &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidStaffMember(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'active', 'approvedByUid', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'active', 'approvedByUid', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 120 &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+        data.role in ['admin', 'vendedor'] &&
+        data.active is bool &&
+        isValidId(data.approvedByUid) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidStaffInvite(data) {
+      return data.keys().hasAll(['id', 'email', 'role', 'active', 'invitedByUid', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'email', 'role', 'active', 'invitedByUid', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 120 &&
+        data.role in ['admin', 'vendedor'] &&
+        data.active is bool &&
+        isValidId(data.invitedByUid) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAccessRequest(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'displayName', 'status', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 120 &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+        data.status == 'pending' &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPosProduct(data) {
+      return data.keys().hasAll(['id', 'storeId', 'name', 'salePrice', 'stock', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'storeId', 'name', 'barcode', 'salePrice', 'stock', 'unitLabel', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.storeId == 'bodega_principal' &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        (!('barcode' in data) || (data.barcode is string && data.barcode.size() <= 64)) &&
+        data.salePrice is number && data.salePrice > 0 && data.salePrice <= 100000 &&
+        data.stock is number && data.stock >= 0 && data.stock <= 1000000 &&
+        (!('unitLabel' in data) || (data.unitLabel is string && data.unitLabel.size() <= 24)) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidInventoryMeta(data) {
+      return data.keys().hasAll(['productId', 'storeId', 'costPrice', 'minStock', 'updatedAt']) &&
+        data.keys().hasOnly(['productId', 'storeId', 'costPrice', 'minStock', 'expiryDate', 'updatedAt']) &&
+        isValidId(data.productId) &&
+        data.storeId == 'bodega_principal' &&
+        data.costPrice is number && data.costPrice >= 0 && data.costPrice <= 100000 &&
+        data.minStock is number && data.minStock >= 0 && data.minStock <= 100000 &&
+        (!('expiryDate' in data) || (data.expiryDate is string && data.expiryDate.size() <= 10)) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPosCustomer(data) {
+      return data.keys().hasAll(['id', 'storeId', 'name', 'currentDebt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'storeId', 'name', 'creditLimit', 'currentDebt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.storeId == 'bodega_principal' &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        (!('creditLimit' in data) || (data.creditLimit is number && data.creditLimit >= 0 && data.creditLimit <= 100000)) &&
+        data.currentDebt is number && data.currentDebt >= 0 && data.currentDebt <= 1000000 &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidCustomerPrivate(data) {
+      return data.keys().hasAll(['customerId', 'storeId', 'name', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['customerId', 'storeId', 'name', 'phone', 'note', 'createdAt', 'updatedAt']) &&
+        isValidId(data.customerId) &&
+        data.storeId == 'bodega_principal' &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 32)) &&
+        (!('note' in data) || (data.note is string && data.note.size() <= 200)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSale(data) {
+      return data.keys().hasAll([
+          'id', 'storeId', 'clientTxId', 'items', 'itemsSummary', 'itemCount',
+          'total', 'totalCost', 'paymentMethod', 'recordedByUid', 'recordedByEmail',
+          'recordedByRole', 'voided', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'storeId', 'clientTxId', 'items', 'itemsSummary', 'itemCount',
+          'total', 'totalCost', 'paymentMethod', 'customerId', 'customerName',
+          'recordedByUid', 'recordedByEmail', 'recordedByRole', 'voided',
+          'voidedAt', 'voidedByUid', 'voidedByEmail', 'voidedByRole',
+          'voidReason', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.storeId == 'bodega_principal' &&
+        data.clientTxId is string && data.clientTxId.size() >= 1 && data.clientTxId.size() <= 80 &&
+        data.items is list && data.items.size() >= 1 && data.items.size() <= 50 && data.items[0] is map &&
+        data.itemsSummary is string && data.itemsSummary.size() >= 1 && data.itemsSummary.size() <= 300 &&
+        data.itemCount is int && data.itemCount >= 1 && data.itemCount <= 10000 &&
+        data.total is number && data.total > 0 && data.total <= 1000000 &&
+        data.totalCost is number && data.totalCost >= 0 && data.totalCost <= 1000000 &&
+        data.paymentMethod in ['efectivo', 'yape', 'fiado'] &&
+        (!('customerId' in data) || isValidId(data.customerId)) &&
+        (!('customerName' in data) || (data.customerName is string && data.customerName.size() <= 100)) &&
+        (data.paymentMethod != 'fiado' || ('customerId' in data && isValidId(data.customerId))) &&
+        isValidId(data.recordedByUid) &&
+        data.recordedByEmail is string && data.recordedByEmail.size() >= 3 && data.recordedByEmail.size() <= 120 &&
+        data.recordedByRole in ['admin', 'vendedor'] &&
+        data.voided is bool &&
+        (!('voidedAt' in data) || data.voidedAt is timestamp) &&
+        (!('voidedByUid' in data) || isValidId(data.voidedByUid)) &&
+        (!('voidedByEmail' in data) || (data.voidedByEmail is string && data.voidedByEmail.size() <= 120)) &&
+        (!('voidedByRole' in data) || data.voidedByRole in ['admin', 'vendedor']) &&
+        (!('voidReason' in data) || (data.voidReason is string && data.voidReason.size() <= 200)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidCreditPayment(data) {
+      return data.keys().hasAll(['id', 'storeId', 'customerId', 'amount', 'method', 'recordedByUid', 'recordedByEmail', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'storeId', 'customerId', 'amount', 'method', 'note', 'recordedByUid', 'recordedByEmail', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.storeId == 'bodega_principal' &&
+        isValidId(data.customerId) &&
+        data.amount is number && data.amount > 0 && data.amount <= 1000000 &&
+        data.method in ['efectivo', 'yape'] &&
+        (!('note' in data) || (data.note is string && data.note.size() <= 200)) &&
+        isValidId(data.recordedByUid) &&
+        data.recordedByEmail is string && data.recordedByEmail.size() >= 3 && data.recordedByEmail.size() <= 120 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMovement(data) {
+      return data.keys().hasAll(['id', 'storeId', 'productId', 'productName', 'type', 'quantity', 'unitCost', 'totalCost', 'actorUid', 'actorEmail', 'actorRole', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'storeId', 'productId', 'productName', 'type', 'quantity', 'unitCost', 'totalCost', 'note', 'actorUid', 'actorEmail', 'actorRole', 'createdAt']) &&
+        isValidId(data.id) &&
+        data.storeId == 'bodega_principal' &&
+        isValidId(data.productId) &&
+        data.productName is string && data.productName.size() >= 1 && data.productName.size() <= 120 &&
+        data.type in ['entrada', 'venta', 'consumo_propio', 'merma', 'anulacion'] &&
+        data.quantity is number && data.quantity > 0 && data.quantity <= 100000 &&
+        data.unitCost is number && data.unitCost >= 0 && data.unitCost <= 100000 &&
+        data.totalCost is number && data.totalCost >= 0 && data.totalCost <= 1000000 &&
+        (!('note' in data) || (data.note is string && data.note.size() <= 200)) &&
+        isValidId(data.actorUid) &&
+        data.actorEmail is string && data.actorEmail.size() >= 3 && data.actorEmail.size() <= 120 &&
+        data.actorRole in ['admin', 'vendedor'] &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidExpense(data) {
+      return data.keys().hasAll(['id', 'storeId', 'description', 'category', 'amount', 'method', 'recordedByUid', 'recordedByEmail', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'storeId', 'description', 'category', 'amount', 'method', 'recordedByUid', 'recordedByEmail', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.storeId == 'bodega_principal' &&
+        data.description is string && data.description.size() >= 1 && data.description.size() <= 160 &&
+        data.category is string && data.category.size() >= 1 && data.category.size() <= 60 &&
+        data.amount is number && data.amount > 0 && data.amount <= 100000 &&
+        data.method in ['efectivo', 'yape'] &&
+        isValidId(data.recordedByUid) &&
+        data.recordedByEmail is string && data.recordedByEmail.size() >= 3 && data.recordedByEmail.size() <= 120 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidQuickButton(data) {
+      return data.keys().hasAll(['id', 'storeId', 'name', 'price', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'storeId', 'name', 'price', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.storeId == 'bodega_principal' &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+        data.price is number && data.price > 0 && data.price <= 10000 &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidQuickButtonCost(data) {
+      return data.keys().hasAll(['buttonId', 'storeId', 'costPrice', 'updatedAt']) &&
+        data.keys().hasOnly(['buttonId', 'storeId', 'costPrice', 'updatedAt']) &&
+        isValidId(data.buttonId) &&
+        data.storeId == 'bodega_principal' &&
+        data.costPrice is number && data.costPrice >= 0 && data.costPrice <= 10000 &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidUnlistedSuggestion(data) {
+      return data.keys().hasAll(['id', 'storeId', 'name', 'lastPrice', 'usageCount', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'storeId', 'name', 'lastPrice', 'usageCount', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.storeId == 'bodega_principal' &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.lastPrice is number && data.lastPrice > 0 && data.lastPrice <= 10000 &&
+        data.usageCount is int && data.usageCount >= 1 && data.usageCount <= 1000000 &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidUnlistedCost(data) {
+      return data.keys().hasAll(['suggestionId', 'storeId', 'lastCost', 'updatedAt']) &&
+        data.keys().hasOnly(['suggestionId', 'storeId', 'lastCost', 'updatedAt']) &&
+        isValidId(data.suggestionId) &&
+        data.storeId == 'bodega_principal' &&
+        data.lastCost is number && data.lastCost >= 0 && data.lastCost <= 10000 &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['id', 'storeId', 'action', 'summary', 'actorUid', 'actorEmail', 'role', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'storeId', 'action', 'summary', 'actorUid', 'actorEmail', 'role', 'createdAt']) &&
+        isValidId(data.id) &&
+        data.storeId == 'bodega_principal' &&
+        data.action in ['venta_anulada', 'limite_fiado_superado', 'acceso_equipo'] &&
+        data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 300 &&
+        isValidId(data.actorUid) &&
+        data.actorEmail is string && data.actorEmail.size() >= 3 && data.actorEmail.size() <= 120 &&
+        data.role in ['admin', 'vendedor'] &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidStoreSettings(data) {
+      return data.keys().hasAll(['id', 'storeId', 'updatedByUid', 'updatedByEmail', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'storeId', 'yapeQrDataUrl', 'updatedByUid', 'updatedByEmail', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.storeId == 'bodega_principal' &&
+        (!('yapeQrDataUrl' in data) || (
+          data.yapeQrDataUrl is string &&
+          data.yapeQrDataUrl.size() >= 30 &&
+          data.yapeQrDataUrl.size() <= 500000 &&
+          data.yapeQrDataUrl.matches('^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$')
+        )) &&
+        isValidId(data.updatedByUid) &&
+        data.updatedByEmail is string && data.updatedByEmail.size() >= 3 && data.updatedByEmail.size() <= 120 &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSupplierReceipt(data) {
+      return data.keys().hasAll(['id', 'storeId', 'supplierName', 'amount', 'deliveredAt', 'recordedByUid', 'recordedByEmail', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'storeId', 'supplierName', 'amount', 'deliveredAt', 'note', 'attachmentDataUrl', 'attachmentName', 'attachmentMime', 'recordedByUid', 'recordedByEmail', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.storeId == 'bodega_principal' &&
+        data.supplierName is string && data.supplierName.size() >= 1 && data.supplierName.size() <= 120 &&
+        data.amount is number && data.amount > 0 && data.amount <= 1000000 &&
+        data.deliveredAt is string && data.deliveredAt.size() >= 1 && data.deliveredAt.size() <= 40 &&
+        (!('note' in data) || (data.note is string && data.note.size() <= 240)) &&
+        (!('attachmentDataUrl' in data) || (
+          data.attachmentDataUrl is string &&
+          data.attachmentDataUrl.size() >= 30 &&
+          data.attachmentDataUrl.size() <= 550000 &&
+          data.attachmentDataUrl.matches('^data:(image/(png|jpeg|webp)|application/pdf);base64,[A-Za-z0-9+/=]+$')
+        )) &&
+        (!('attachmentName' in data) || (data.attachmentName is string && data.attachmentName.size() <= 120)) &&
+        (!('attachmentMime' in data) || data.attachmentMime in ['image/png', 'image/jpeg', 'image/webp', 'application/pdf']) &&
+        isValidId(data.recordedByUid) &&
+        data.recordedByEmail is string && data.recordedByEmail.size() >= 3 && data.recordedByEmail.size() <= 120 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // 4. Connection Health Check Document
+    match /test/connection {
+      allow get: if isSignedIn();
+      allow list, write: if false;
+    }
+
+    // 5. RBAC & Multi-Phone Access Control
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && isVerified() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin() && resource.data.uid is string;
+      allow create: if isValidId(uid) && isValidAdminRole(incoming()) &&
+        incoming().uid == uid && incoming().createdAt == request.time && (
+          isAdmin() || (
+            isVerified() &&
+            request.auth.uid == uid &&
+            incoming().email == request.auth.token.email &&
+            exists(/databases/$(database)/documents/staff_invites/$(safeEmailKey(request.auth.token.email))) &&
+            get(/databases/$(database)/documents/staff_invites/$(safeEmailKey(request.auth.token.email))).data.active == true &&
+            get(/databases/$(database)/documents/staff_invites/$(safeEmailKey(request.auth.token.email))).data.role == 'admin' &&
+            existsAfter(/databases/$(database)/documents/staff_members/$(uid))
+          )
+        );
+      allow update: if false;
+      allow delete: if isValidId(uid) && isAdmin() && uid != request.auth.uid;
+    }
+
+    match /staff_members/{uid} {
+      allow get: if isValidId(uid) && isVerified() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin() && resource.data.uid is string;
+      allow create: if isValidId(uid) && isValidStaffMember(incoming()) && incoming().uid == uid &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time && (
+          isAdmin() || (
+            isVerified() &&
+            request.auth.uid == uid &&
+            incoming().email == request.auth.token.email &&
+            incoming().role in ['admin', 'vendedor'] &&
+            incoming().active == true &&
+            exists(/databases/$(database)/documents/staff_invites/$(safeEmailKey(request.auth.token.email))) &&
+            get(/databases/$(database)/documents/staff_invites/$(safeEmailKey(request.auth.token.email))).data.active == true &&
+            get(/databases/$(database)/documents/staff_invites/$(safeEmailKey(request.auth.token.email))).data.role == incoming().role &&
+            incoming().approvedByUid == get(/databases/$(database)/documents/staff_invites/$(safeEmailKey(request.auth.token.email))).data.invitedByUid &&
+            (incoming().role != 'admin' || existsAfter(/databases/$(database)/documents/admins/$(uid)))
+          )
+        );
+      allow update: if isValidId(uid) && isValidStaffMember(incoming()) && isAdmin() &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time;
+      allow delete: if isValidId(uid) && isAdmin() && uid != request.auth.uid;
+    }
+
+    match /staff_invites/{emailKey} {
+      allow get: if isValidId(emailKey) && isVerified() && (
+        isAdmin() || emailKey == safeEmailKey(request.auth.token.email)
+      );
+      allow list: if isAdmin() && resource.data.id is string;
+      allow create: if isValidId(emailKey) && isValidStaffInvite(incoming()) && isAdmin() &&
+        incoming().id == emailKey &&
+        incoming().invitedByUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(emailKey) && isValidStaffInvite(incoming()) && isAdmin() &&
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time;
+      allow delete: if isValidId(emailKey) && isAdmin();
+    }
+
+    match /access_requests/{uid} {
+      allow get: if isValidId(uid) && isVerified() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin() && resource.data.uid is string;
+      allow create: if isValidId(uid) && isValidAccessRequest(incoming()) && isVerified() &&
+        request.auth.uid == uid &&
+        incoming().uid == request.auth.uid &&
+        incoming().email == request.auth.token.email &&
+        incoming().status == 'pending' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(uid) && isValidAccessRequest(incoming()) && isVerified() &&
+        request.auth.uid == uid &&
+        incoming().uid == existing().uid &&
+        incoming().email == existing().email &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt']);
+      allow delete: if isValidId(uid) && (isAdmin() || (isVerified() && request.auth.uid == uid));
+    }
+
+    // 6. POS Catalog & Sensitive Inventory Meta (Split Collection Isolation)
+    match /pos_products/{productId} {
+      allow get: if isValidId(productId) && isStaff();
+      allow list: if isStaff() && resource.data.storeId == 'bodega_principal';
+      allow create: if isValidId(productId) && isValidPosProduct(incoming()) && isStaff() &&
+        incoming().id == productId && incoming().updatedAt == request.time;
+      allow update: if isValidId(productId) && isValidPosProduct(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isStaff() && incoming().diff(existing()).affectedKeys().hasOnly(['stock', 'updatedAt']))
+        );
+      allow delete: if isValidId(productId) && isAdmin();
+    }
+
+    match /inventory_meta/{productId} {
+      allow get: if isValidId(productId) && isAdmin();
+      allow list: if isAdmin() && resource.data.storeId == 'bodega_principal';
+      allow create: if isValidId(productId) && isValidInventoryMeta(incoming()) && isAdmin() &&
+        incoming().productId == productId &&
+        incoming().updatedAt == request.time &&
+        existsAfter(/databases/$(database)/documents/pos_products/$(productId));
+      allow update: if isValidId(productId) && isValidInventoryMeta(incoming()) && isAdmin() &&
+        incoming().productId == existing().productId &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedAt == request.time;
+      allow delete: if isValidId(productId) && isAdmin();
+    }
+
+    // 7. POS Customers & Private PII Customers (Split Collection Isolation)
+    match /pos_customers/{customerId} {
+      allow get: if isValidId(customerId) && isStaff();
+      allow list: if isStaff() && resource.data.storeId == 'bodega_principal';
+      allow create: if isValidId(customerId) && isValidPosCustomer(incoming()) &&
+        incoming().id == customerId &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isStaff() && !('creditLimit' in incoming()))
+        );
+      allow update: if isValidId(customerId) && isValidPosCustomer(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isStaff() && incoming().diff(existing()).affectedKeys().hasOnly(['currentDebt', 'updatedAt']))
+        );
+      allow delete: if isValidId(customerId) && isAdmin();
+    }
+
+    match /customers_private/{customerId} {
+      allow get: if isValidId(customerId) && isAdmin();
+      allow list: if isAdmin() && resource.data.storeId == 'bodega_principal';
+      allow create: if isValidId(customerId) && isValidCustomerPrivate(incoming()) && isAdmin() &&
+        incoming().customerId == customerId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        existsAfter(/databases/$(database)/documents/pos_customers/$(customerId));
+      allow update: if isValidId(customerId) && isValidCustomerPrivate(incoming()) && isAdmin() &&
+        incoming().customerId == existing().customerId &&
+        incoming().storeId == existing().storeId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time;
+      allow delete: if isValidId(customerId) && isAdmin();
+    }
+
+    // 8. Sales & Terminal Void Locking
+    match /sales/{saleId} {
+      allow get: if isValidId(saleId) && (
+        isAdmin() || (isStaff() && existing().recordedByUid == request.auth.uid)
+      );
+      allow list: if (isAdmin() && resource.data.storeId == 'bodega_principal') ||
+        (isStaff() && resource.data.storeId == 'bodega_principal' && resource.data.recordedByUid == request.auth.uid);
+      allow create: if isValidId(saleId) && isValidSale(incoming()) && isStaff() &&
+        incoming().id == saleId &&
+        incoming().recordedByUid == request.auth.uid &&
+        incoming().recordedByEmail == request.auth.token.email &&
+        (isAdmin() || incoming().recordedByRole == 'vendedor') &&
+        incoming().voided == false &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (incoming().paymentMethod != 'fiado' || existsAfter(/databases/$(database)/documents/pos_customers/$(incoming().customerId)));
+      allow update: if isValidId(saleId) && isValidSale(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().storeId == existing().storeId &&
+        incoming().recordedByUid == existing().recordedByUid &&
+        incoming().recordedByEmail == existing().recordedByEmail &&
+        incoming().recordedByRole == existing().recordedByRole &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() || (
+            isStaff() &&
+            existing().recordedByUid == request.auth.uid &&
+            existing().voided == false &&
+            incoming().voided == true &&
+            incoming().voidedByUid == request.auth.uid &&
+            incoming().voidedByEmail == request.auth.token.email &&
+            incoming().voidedByRole == 'vendedor' &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'voided', 'voidedAt', 'voidedByUid', 'voidedByEmail', 'voidedByRole', 'voidReason', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if isValidId(saleId) && isAdmin();
+    }
+
+    // 9. Credit Payments (Admin Only)
+    match /credit_payments/{paymentId} {
+      allow get: if isValidId(paymentId) && isAdmin();
+      allow list: if isAdmin() && resource.data.storeId == 'bodega_principal';
+      allow create: if isValidId(paymentId) && isValidCreditPayment(incoming()) && isAdmin() &&
+        incoming().id == paymentId &&
+        incoming().recordedByUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/pos_customers/$(incoming().customerId));
+      allow update: if isValidId(paymentId) && isValidCreditPayment(incoming()) && isAdmin() &&
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time;
+      allow delete: if isValidId(paymentId) && isAdmin();
+    }
+
+    // 10. Inventory Movements & Audit Trail
+    match /movements/{movementId} {
+      allow get: if isValidId(movementId) && isAdmin();
+      allow list: if isAdmin() && resource.data.storeId == 'bodega_principal';
+      allow create: if isValidId(movementId) && isValidMovement(incoming()) &&
+        incoming().id == movementId &&
+        incoming().actorUid == request.auth.uid &&
+        incoming().actorEmail == request.auth.token.email &&
+        incoming().createdAt == request.time && (
+          isAdmin() || (
+            isStaff() &&
+            incoming().actorRole == 'vendedor' &&
+            incoming().type in ['venta', 'anulacion'] &&
+            incoming().unitCost == 0 &&
+            incoming().totalCost == 0
+          )
+        );
+      allow update, delete: if isValidId(movementId) && isAdmin();
+    }
+
+    // 11. Small Expenses (Admin Only)
+    match /expenses/{expenseId} {
+      allow get: if isValidId(expenseId) && isAdmin();
+      allow list: if isAdmin() && resource.data.storeId == 'bodega_principal';
+      allow create: if isValidId(expenseId) && isValidExpense(incoming()) && isAdmin() &&
+        incoming().id == expenseId &&
+        incoming().recordedByUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(expenseId) && isValidExpense(incoming()) && isAdmin() &&
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time;
+      allow delete: if isValidId(expenseId) && isAdmin();
+    }
+
+    // 12. Quick Sale Buttons & Unlisted Suggestions (Cost Isolated)
+    match /quick_buttons/{buttonId} {
+      allow get: if isValidId(buttonId) && isStaff();
+      allow list: if isStaff() && resource.data.storeId == 'bodega_principal';
+      allow create: if isValidId(buttonId) && isValidQuickButton(incoming()) && isAdmin() &&
+        incoming().id == buttonId && incoming().updatedAt == request.time;
+      allow update: if isValidId(buttonId) && isValidQuickButton(incoming()) && isAdmin() &&
+        incoming().id == existing().id && incoming().updatedAt == request.time;
+      allow delete: if isValidId(buttonId) && isAdmin();
+    }
+
+    match /quick_button_costs/{buttonId} {
+      allow get: if isValidId(buttonId) && isAdmin();
+      allow list: if isAdmin() && resource.data.storeId == 'bodega_principal';
+      allow create: if isValidId(buttonId) && isValidQuickButtonCost(incoming()) && isAdmin() &&
+        incoming().buttonId == buttonId && incoming().updatedAt == request.time;
+      allow update: if isValidId(buttonId) && isValidQuickButtonCost(incoming()) && isAdmin() &&
+        incoming().buttonId == existing().buttonId && incoming().updatedAt == request.time;
+      allow delete: if isValidId(buttonId) && isAdmin();
+    }
+
+    match /unlisted_suggestions/{suggestionId} {
+      allow get: if isValidId(suggestionId) && isStaff();
+      allow list: if isStaff() && resource.data.storeId == 'bodega_principal';
+      allow create: if isValidId(suggestionId) && isValidUnlistedSuggestion(incoming()) && isStaff() &&
+        incoming().id == suggestionId && incoming().updatedAt == request.time;
+      allow update: if isValidId(suggestionId) && isValidUnlistedSuggestion(incoming()) && isStaff() &&
+        incoming().id == existing().id &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedAt == request.time;
+      allow delete: if isValidId(suggestionId) && isAdmin();
+    }
+
+    match /unlisted_costs/{suggestionId} {
+      allow get: if isValidId(suggestionId) && isAdmin();
+      allow list: if isAdmin() && resource.data.storeId == 'bodega_principal';
+      allow create: if isValidId(suggestionId) && isValidUnlistedCost(incoming()) && isAdmin() &&
+        incoming().suggestionId == suggestionId && incoming().updatedAt == request.time;
+      allow update: if isValidId(suggestionId) && isValidUnlistedCost(incoming()) && isAdmin() &&
+        incoming().suggestionId == existing().suggestionId && incoming().updatedAt == request.time;
+      allow delete: if isValidId(suggestionId) && isAdmin();
+    }
+
+    // 13. Audit Logs (Admin Read, Staff Append-Only)
+    match /audit_logs/{logId} {
+      allow get: if isValidId(logId) && isAdmin();
+      allow list: if isAdmin() && resource.data.storeId == 'bodega_principal';
+      allow create: if isValidId(logId) && isValidAuditLog(incoming()) && isStaff() &&
+        incoming().id == logId &&
+        incoming().actorUid == request.auth.uid &&
+        incoming().actorEmail == request.auth.token.email &&
+        (isAdmin() || incoming().role == 'vendedor') &&
+        incoming().createdAt == request.time;
+      allow update, delete: if isValidId(logId) && isAdmin();
+    }
+
+    // 14. Store Settings & Yape QR (Staff Read, Admin Write)
+    match /store_settings/{settingId} {
+      allow get: if isValidId(settingId) && isStaff();
+      allow list: if false;
+      allow create: if isValidId(settingId) && isValidStoreSettings(incoming()) && isAdmin() &&
+        incoming().id == settingId &&
+        settingId == 'bodega_principal' &&
+        incoming().updatedByUid == request.auth.uid &&
+        incoming().updatedByEmail == request.auth.token.email &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(settingId) && isValidStoreSettings(incoming()) && isAdmin() &&
+        incoming().id == existing().id &&
+        incoming().storeId == existing().storeId &&
+        incoming().updatedByUid == request.auth.uid &&
+        incoming().updatedByEmail == request.auth.token.email &&
+        incoming().updatedAt == request.time;
+      allow delete: if isValidId(settingId) && isAdmin();
+    }
+
+    // 15. Supplier Receipts / Boletas de Compras (Admin Only)
+    match /supplier_receipts/{receiptId} {
+      allow get: if isValidId(receiptId) && isAdmin();
+      allow list: if isAdmin() && resource.data.storeId == 'bodega_principal';
+      allow create: if isValidId(receiptId) && isValidSupplierReceipt(incoming()) && isAdmin() &&
+        incoming().id == receiptId &&
+        incoming().recordedByUid == request.auth.uid &&
+        incoming().recordedByEmail == request.auth.token.email &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(receiptId) && isValidSupplierReceipt(incoming()) && isAdmin() &&
+        incoming().id == existing().id &&
+        incoming().storeId == existing().storeId &&
+        incoming().recordedByUid == existing().recordedByUid &&
+        incoming().recordedByEmail == existing().recordedByEmail &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time;
+      allow delete: if isValidId(receiptId) && isAdmin();
+    }
+  }
+}

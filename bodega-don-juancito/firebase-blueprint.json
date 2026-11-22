@@ -1,0 +1,417 @@
+{
+  "entities": {
+    "AdminRole": {
+      "title": "AdminRole",
+      "description": "Administrador autorizado de la bodega.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "createdAt"]
+    },
+    "StaffMember": {
+      "title": "StaffMember",
+      "description": "Usuario autorizado (administrador o vendedor) vinculado a un celular.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "role": { "type": "string", "enum": ["admin", "vendedor"], "maxLength": 20 },
+        "active": { "type": "boolean" },
+        "approvedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "role", "active", "approvedByUid", "createdAt", "updatedAt"]
+    },
+    "StaffInvite": {
+      "title": "StaffInvite",
+      "description": "Pre-autorización de correo Google para habilitar otro celular.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["admin", "vendedor"], "maxLength": 20 },
+        "active": { "type": "boolean" },
+        "invitedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "email", "role", "active", "invitedByUid", "createdAt", "updatedAt"]
+    },
+    "AccessRequest": {
+      "title": "AccessRequest",
+      "description": "Solicitud de acceso desde un celular nuevo esperando aprobación del Administrador.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "status": { "type": "string", "enum": ["pending"], "maxLength": 20 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "status", "createdAt", "updatedAt"]
+    },
+    "PosProduct": {
+      "title": "PosProduct",
+      "description": "Catálogo público para personal de caja (sin costo de compra ni vencimientos).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "enum": ["bodega_principal"], "maxLength": 32 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "barcode": { "type": "string", "maxLength": 64 },
+        "salePrice": { "type": "number" },
+        "stock": { "type": "number" },
+        "unitLabel": { "type": "string", "maxLength": 24 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "storeId", "name", "salePrice", "stock", "updatedAt"]
+    },
+    "InventoryMeta": {
+      "title": "InventoryMeta",
+      "description": "Datos sensibles de inventario (costo de compra, stock mínimo, fecha de vencimiento) solo para Administrador.",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "enum": ["bodega_principal"], "maxLength": 32 },
+        "costPrice": { "type": "number" },
+        "minStock": { "type": "number" },
+        "expiryDate": { "type": "string", "maxLength": 10 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["productId", "storeId", "costPrice", "minStock", "updatedAt"]
+    },
+    "PosCustomer": {
+      "title": "PosCustomer",
+      "description": "Proyección segura de cliente para POS (sin teléfono ni notas privadas).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "enum": ["bodega_principal"], "maxLength": 32 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "creditLimit": { "type": "number" },
+        "currentDebt": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "storeId", "name", "currentDebt", "updatedAt"]
+    },
+    "CustomerPrivate": {
+      "title": "CustomerPrivate",
+      "description": "Datos personales y de contacto del cliente (PII aislado solo para Administrador).",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "enum": ["bodega_principal"], "maxLength": 32 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 32 },
+        "note": { "type": "string", "maxLength": 200 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerId", "storeId", "name", "createdAt", "updatedAt"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "Venta registrada en Efectivo, Yape o Fiado con trazabilidad de usuario y soporte de anulación.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "enum": ["bodega_principal"], "maxLength": 32 },
+        "clientTxId": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "items": { "type": "array" },
+        "itemsSummary": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "itemCount": { "type": "number" },
+        "total": { "type": "number" },
+        "totalCost": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["efectivo", "yape", "fiado"], "maxLength": 20 },
+        "customerId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "recordedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "recordedByEmail": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "recordedByRole": { "type": "string", "enum": ["admin", "vendedor"], "maxLength": 20 },
+        "voided": { "type": "boolean" },
+        "voidedAt": { "type": "string", "format": "date-time" },
+        "voidedByUid": { "type": "string", "maxLength": 128 },
+        "voidedByEmail": { "type": "string", "maxLength": 120 },
+        "voidedByRole": { "type": "string", "enum": ["admin", "vendedor"], "maxLength": 20 },
+        "voidReason": { "type": "string", "maxLength": 200 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "storeId",
+        "clientTxId",
+        "items",
+        "itemsSummary",
+        "itemCount",
+        "total",
+        "totalCost",
+        "paymentMethod",
+        "recordedByUid",
+        "recordedByEmail",
+        "recordedByRole",
+        "voided",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CreditPayment": {
+      "title": "CreditPayment",
+      "description": "Abono o pago total de deuda fiada de un cliente (solo Administrador).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "enum": ["bodega_principal"], "maxLength": 32 },
+        "customerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "amount": { "type": "number" },
+        "method": { "type": "string", "enum": ["efectivo", "yape"], "maxLength": 20 },
+        "note": { "type": "string", "maxLength": 200 },
+        "recordedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "recordedByEmail": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "storeId", "customerId", "amount", "method", "recordedByUid", "recordedByEmail", "createdAt", "updatedAt"]
+    },
+    "InventoryMovement": {
+      "title": "InventoryMovement",
+      "description": "Auditoría de entradas, ventas, mermas, consumo propio y anulaciones con usuario responsable.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "enum": ["bodega_principal"], "maxLength": 32 },
+        "productId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "productName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "type": { "type": "string", "enum": ["entrada", "venta", "consumo_propio", "merma", "anulacion"], "maxLength": 24 },
+        "quantity": { "type": "number" },
+        "unitCost": { "type": "number" },
+        "totalCost": { "type": "number" },
+        "note": { "type": "string", "maxLength": 200 },
+        "actorUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorEmail": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "actorRole": { "type": "string", "enum": ["admin", "vendedor"], "maxLength": 20 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "storeId", "productId", "productName", "type", "quantity", "unitCost", "totalCost", "actorUid", "actorEmail", "actorRole", "createdAt"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Gasto chico operativo de la tienda (solo Administrador).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "enum": ["bodega_principal"], "maxLength": 32 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "category": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "amount": { "type": "number" },
+        "method": { "type": "string", "enum": ["efectivo", "yape"], "maxLength": 20 },
+        "recordedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "recordedByEmail": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "storeId", "description", "category", "amount", "method", "recordedByUid", "recordedByEmail", "createdAt", "updatedAt"]
+    },
+    "QuickButton": {
+      "title": "QuickButton",
+      "description": "Botón de venta rápida de 1 toque para POS.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "enum": ["bodega_principal"], "maxLength": 32 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "price": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "storeId", "name", "price", "updatedAt"]
+    },
+    "QuickButtonCost": {
+      "title": "QuickButtonCost",
+      "description": "Costo unitario privado de botón rápido (solo Administrador).",
+      "type": "object",
+      "properties": {
+        "buttonId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "enum": ["bodega_principal"], "maxLength": 32 },
+        "costPrice": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["buttonId", "storeId", "costPrice", "updatedAt"]
+    },
+    "UnlistedSuggestion": {
+      "title": "UnlistedSuggestion",
+      "description": "Sugerencia de producto sin código para autocompletado en POS.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "enum": ["bodega_principal"], "maxLength": 32 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "lastPrice": { "type": "number" },
+        "usageCount": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "storeId", "name", "lastPrice", "usageCount", "updatedAt"]
+    },
+    "UnlistedCost": {
+      "title": "UnlistedCost",
+      "description": "Costo unitario privado de producto sin código frecuente (solo Administrador).",
+      "type": "object",
+      "properties": {
+        "suggestionId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "enum": ["bodega_principal"], "maxLength": 32 },
+        "lastCost": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["suggestionId", "storeId", "lastCost", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Bitácora de auditoría de anulaciones, límites superados y cambios de equipo.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "enum": ["bodega_principal"], "maxLength": 32 },
+        "action": { "type": "string", "enum": ["venta_anulada", "limite_fiado_superado", "acceso_equipo"], "maxLength": 40 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "actorUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorEmail": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["admin", "vendedor"], "maxLength": 20 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "storeId", "action", "summary", "actorUid", "actorEmail", "role", "createdAt"]
+    },
+    "StoreSettings": {
+      "title": "StoreSettings",
+      "description": "Configuración compartida de la tienda (como el QR oficial de Yape).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "enum": ["bodega_principal"], "maxLength": 32 },
+        "yapeQrDataUrl": {
+          "type": "string",
+          "minLength": 30,
+          "maxLength": 500000,
+          "pattern": "^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$"
+        },
+        "updatedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "updatedByEmail": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "storeId", "updatedByUid", "updatedByEmail", "updatedAt"]
+    },
+    "SupplierReceipt": {
+      "title": "SupplierReceipt",
+      "description": "Boleta o factura de compra y entrega de proveedores con imagen o PDF adjunto.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "enum": ["bodega_principal"], "maxLength": 32 },
+        "supplierName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "amount": { "type": "number" },
+        "deliveredAt": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "note": { "type": "string", "maxLength": 240 },
+        "attachmentDataUrl": {
+          "type": "string",
+          "minLength": 30,
+          "maxLength": 550000,
+          "pattern": "^data:(image/(png|jpeg|webp)|application/pdf);base64,[A-Za-z0-9+/=]+$"
+        },
+        "attachmentName": { "type": "string", "maxLength": 120 },
+        "attachmentMime": {
+          "type": "string",
+          "enum": ["image/png", "image/jpeg", "image/webp", "application/pdf"],
+          "maxLength": 40
+        },
+        "recordedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "recordedByEmail": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "storeId", "supplierName", "amount", "deliveredAt", "recordedByUid", "recordedByEmail", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminRole" },
+      "description": "Administradores adicionales designados por el propietario."
+    },
+    "/staff_members/{uid}": {
+      "schema": { "$ref": "#/entities/StaffMember" },
+      "description": "Usuarios autorizados (admin o vendedor) por UID."
+    },
+    "/staff_invites/{emailKey}": {
+      "schema": { "$ref": "#/entities/StaffInvite" },
+      "description": "Invitaciones por correo para activar nuevos celulares."
+    },
+    "/access_requests/{uid}": {
+      "schema": { "$ref": "#/entities/AccessRequest" },
+      "description": "Solicitudes de celulares esperando aprobación."
+    },
+    "/pos_products/{productId}": {
+      "schema": { "$ref": "#/entities/PosProduct" },
+      "description": "Productos visibles en caja (sin costos)."
+    },
+    "/inventory_meta/{productId}": {
+      "schema": { "$ref": "#/entities/InventoryMeta" },
+      "description": "Costos de compra, stock mínimo y vencimientos (solo Admin)."
+    },
+    "/pos_customers/{customerId}": {
+      "schema": { "$ref": "#/entities/PosCustomer" },
+      "description": "Clientes visibles en POS para fiados (sin PII)."
+    },
+    "/customers_private/{customerId}": {
+      "schema": { "$ref": "#/entities/CustomerPrivate" },
+      "description": "Teléfono y notas privadas de clientes (solo Admin)."
+    },
+    "/sales/{saleId}": {
+      "schema": { "$ref": "#/entities/Sale" },
+      "description": "Registro de ventas y anulaciones."
+    },
+    "/credit_payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/CreditPayment" },
+      "description": "Abonos de fiados (solo Admin)."
+    },
+    "/movements/{movementId}": {
+      "schema": { "$ref": "#/entities/InventoryMovement" },
+      "description": "Movimientos de inventario con autoría por usuario."
+    },
+    "/expenses/{expenseId}": {
+      "schema": { "$ref": "#/entities/Expense" },
+      "description": "Gastos chicos de la tienda (solo Admin)."
+    },
+    "/quick_buttons/{buttonId}": {
+      "schema": { "$ref": "#/entities/QuickButton" },
+      "description": "Botones de venta rápida para POS."
+    },
+    "/quick_button_costs/{buttonId}": {
+      "schema": { "$ref": "#/entities/QuickButtonCost" },
+      "description": "Costos de botones rápidos (solo Admin)."
+    },
+    "/unlisted_suggestions/{suggestionId}": {
+      "schema": { "$ref": "#/entities/UnlistedSuggestion" },
+      "description": "Sugerencias de productos sin código."
+    },
+    "/unlisted_costs/{suggestionId}": {
+      "schema": { "$ref": "#/entities/UnlistedCost" },
+      "description": "Costos de productos sin código (solo Admin)."
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Bitácora de auditoría para el Administrador."
+    },
+    "/store_settings/{settingId}": {
+      "schema": { "$ref": "#/entities/StoreSettings" },
+      "description": "Configuración de la tienda y QR de Yape sincronizado entre celulares."
+    },
+    "/supplier_receipts/{receiptId}": {
+      "schema": { "$ref": "#/entities/SupplierReceipt" },
+      "description": "Boletas de compras y entregas de proveedores (solo Admin)."
+    }
+  }
+}
